@@ -3,12 +3,7 @@ tiny yet powerfull html viewer made for my miniweb browser chain, which contains
 1. viewer
     minimal html viewer writen in python
 2. mwd
-    tiny web downloader helper, short for minimal Web downloader
-
-extra files that arnt important
-
-1. test.py          - test new versions of the code
-2. out.txt          - paste terminal's output into for debugging
+    tiny web downloader helper, short for minimal Web downloade
 
 how the minimal web works
 
