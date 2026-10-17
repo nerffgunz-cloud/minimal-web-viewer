@@ -3,7 +3,14 @@ tiny yet powerfull html viewer made for my miniweb browser chain, which contains
 1. viewer
     minimal html viewer writen in python
 2. mwd
-    tiny web downloader helper, short for minimal Web downloade
+    tiny web downloader helper, short for minimal Web downloader
+3. local (folder)
+    local web pages
+
+internal search
+the internal search script inside of mwd.py searches ./local for files of similar name to the search
+it also searches all folders under ./local
+
 
 how the minimal web works
 
