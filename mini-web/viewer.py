@@ -31,6 +31,10 @@ class InteractiveHTMLParser(HTMLParser):
         attr_dict = dict(attrs)
         self._current_tag = tag
 
+        # Completely ignore/skip meta and link tags
+        if tag in ['meta', 'link']:
+            return
+
         if tag == 'script':
             self.in_script = True
             self.has_script = True
@@ -38,10 +42,6 @@ class InteractiveHTMLParser(HTMLParser):
 
         if tag == 'style':
             self.in_style = True
-            self.has_css = True
-            return
-
-        if tag == 'link' and attr_dict.get('rel') == 'stylesheet':
             self.has_css = True
             return
 
@@ -108,6 +108,9 @@ class InteractiveHTMLParser(HTMLParser):
                 self.output_lines.append(("", self.in_center))
 
     def handle_endtag(self, tag):
+        if tag in ['meta', 'link']:
+            return
+
         if tag == 'script':
             self.in_script = False
             return
