@@ -27,11 +27,14 @@ class InteractiveHTMLParser(HTMLParser):
         self.skip_content = False
         self.details_stack = []
 
+    def handle_comment(self, data):
+        # Ignore and hide HTML comments <!-- ... -->
+        pass
+
     def handle_starttag(self, tag, attrs):
         attr_dict = dict(attrs)
         self._current_tag = tag
 
-        # Completely ignore/skip meta and link tags
         if tag in ['meta', 'link']:
             return
 
@@ -53,6 +56,33 @@ class InteractiveHTMLParser(HTMLParser):
             self.in_center = True
             if self._current_line:
                 self.flush_line()
+            return
+
+        if tag == 'hr':
+            if self._current_line:
+                self.flush_line()
+            self.output_lines.append(("-" * 30, self.in_center))
+            return
+
+        if tag == 'li':
+            if self._current_line:
+                self.flush_line()
+            self._current_line.append(" * ")
+            return
+
+        # Handle form input boxes for local database searching
+        if tag == 'input':
+            input_type = attr_dict.get('type', 'text')
+            if input_type in ['text', 'search']:
+                placeholder = attr_dict.get('placeholder', 'Search...')
+                self.interactive_elements.append({
+                    'type': 'input',
+                    'name': attr_dict.get('name', 'q'),
+                    'text': f"[ Input: {placeholder} ]",
+                    'line_idx': len(self.output_lines),
+                    'centered': self.in_center
+                })
+                self._current_line.append(f"[ Input: {placeholder} ]")
             return
 
         if tag == 'details':
@@ -101,14 +131,14 @@ class InteractiveHTMLParser(HTMLParser):
             })
             self._current_line.append("[Link: ")
 
-        elif tag in ['p', 'div', 'br']:
+        elif tag in ['p', 'div', 'br', 'ul', 'ol', 'form']:
             if self._current_line:
                 self.flush_line()
             if tag == 'br':
                 self.output_lines.append(("", self.in_center))
 
     def handle_endtag(self, tag):
-        if tag in ['meta', 'link']:
+        if tag in ['meta', 'link', 'hr', 'input']:
             return
 
         if tag == 'script':
@@ -152,7 +182,7 @@ class InteractiveHTMLParser(HTMLParser):
             if self.interactive_elements:
                 self.interactive_elements[-1]['text'] = "".join(self._current_line)
             self.flush_line()
-        elif tag in ['p', 'div']:
+        elif tag in ['p', 'div', 'li', 'ul', 'ol', 'form']:
             self.flush_line()
             self.output_lines.append(("", self.in_center))
 
@@ -269,7 +299,7 @@ def main(stdscr):
     stdscr.timeout(50)
     curses.curs_set(0)
 
-    left_intro = " Viewer v0.5 ([q] Quit, [h] Home, [r] Reload, [s] Search)"
+    left_intro = "Simple html Viewer v0.6 ([q] Quit, [h] Home, [r] Reload, [s] Search)"
 
     try:
         while True:
@@ -320,6 +350,15 @@ def main(stdscr):
                         read("cache.html")
                         selected_index = 0
                         scroll_y = 0
+                    elif item['type'] == 'input':
+                        # Intercept Enter key on page input textboxes to trigger search/queries
+                        query = prompt_user_input(stdscr, f"Search ({item['name']})")
+                        if query:
+                            target_url = f"@{query}"
+                            subprocess.run([sys.executable, "mwd.py"], input=target_url + "\n", text=True)
+                            read("cache.html")
+                            selected_index = 0
+                            scroll_y = 0
 
             elif key == ord('s') or key == ord('S'):
                 query = prompt_user_input(stdscr, "Enter URL or Search Query")
@@ -408,4 +447,4 @@ def main(stdscr):
         pass
 
 if __name__ == "__main__":
-    curses.wrapper(main)
+    curses.wrapper(main)vvvvvvvvvvvvvvvvvvvvvvvvvv
