@@ -311,7 +311,7 @@ def main(stdscr):
     stdscr.timeout(50)
     curses.curs_set(0)
 
-    left_intro = "Simple html Viewer v0.7 ([q] Quit, [h] Home, [r] Reload, [s] Search)"
+    left_intro = "Simple html Viewer v0.7 ([q] Quit, [h] Home, [r] Reload, [s] Search, [i] install)"
 
     try:
         while True:
@@ -413,6 +413,21 @@ def main(stdscr):
                     read("cache.html")
                     selected_index = 0
                     scroll_y = 0
+
+            elif key == ord('i') or key == ord('I'):
+                # Temporarily leave curses mode so the installer can print/input normally in the terminal
+                curses.endwin()
+                
+                print("\nLaunching MWB Package Installer...")
+                subprocess.run([sys.executable, "installer.py"])
+                
+                input("\nInstallation finished. Press Enter to return to the browser...")
+                
+                # Resume curses mode and redraw the screen
+                stdscr.refresh()
+                read("cache.html")
+                selected_index = 0
+                scroll_y = 0
 
 
             elif key == ord('h') or key == ord('H'):
