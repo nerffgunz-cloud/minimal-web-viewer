@@ -40,7 +40,7 @@ def run_installer():
                 if "dir.txt" in namelist:
                     target_subdir = zip_ref.read("dir.txt").decode("utf-8").strip()
                 
-                # Construct final extraction path (e.g., local/wikipedia-clone/articles/)
+                # Construct final extraction path
                 extract_to = os.path.join(base_local_dir, target_subdir)
                 os.makedirs(extract_to, exist_ok=True)
                 
@@ -51,19 +51,23 @@ def run_installer():
                     if member == "dir.txt" or member.endswith('/'):
                         continue
                         
-                    # Read file data from zip
                     source_file = zip_ref.open(member)
-                    
-                    # Target path for individual file inside the package
                     target_file_path = os.path.join(extract_to, member)
-                    
-                    # Ensure sub-directories inside the package are created if needed
                     os.makedirs(os.path.dirname(target_file_path), exist_ok=True)
                     
                     with open(target_file_path, "wb") as target_file:
                         target_file.write(source_file.read())
                         
             print("Installation complete! Your files are indexed and ready to search using '@'.")
+            
+            # Ask to delete the zip file
+            del_choice = input(f"Do you want to delete the installation zip '{selected_zip}'? (y/n): ").strip().lower()
+            if del_choice == 'y':
+                os.remove(zip_path)
+                print(f"Successfully deleted {selected_zip}.")
+            else:
+                print("Zip file kept in downloads folder.")
+                
         else:
             print("Error: Invalid package selection number.")
     except ValueError:
