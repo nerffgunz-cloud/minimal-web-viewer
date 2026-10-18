@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 import urllib.parse
+import textwrap
+import shutil
 from html.parser import HTMLParser
 
 class InteractiveHTMLParser(HTMLParser):
@@ -70,14 +72,16 @@ class InteractiveHTMLParser(HTMLParser):
             self._current_line.append(" * ")
             return
 
-        # Handle form input boxes for local database searching
+# Handle form input boxes for local database searching
         if tag == 'input':
             input_type = attr_dict.get('type', 'text')
             if input_type in ['text', 'search']:
                 placeholder = attr_dict.get('placeholder', 'Search...')
+                default_value = attr_dict.get('value', '') # Capture value attribute
                 self.interactive_elements.append({
                     'type': 'input',
                     'name': attr_dict.get('name', 'q'),
+                    'value': default_value, # Store it here
                     'text': f"[ Input: {placeholder} ]",
                     'line_idx': len(self.output_lines),
                     'centered': self.in_center
@@ -210,7 +214,10 @@ class InteractiveHTMLParser(HTMLParser):
     def flush_line(self):
         line_str = "".join(self._current_line).strip()
         if line_str:
-            self.output_lines.append((line_str, self.in_center))
+            # Automatically wrap long lines/paragraphs to prevent horizontal overflow
+            wrapped_chunks = textwrap.wrap(line_str, width=shutil.get_terminal_size().columns)
+            for chunk in wrapped_chunks:
+                self.output_lines.append((chunk, self.in_center))
         self._current_line = []
 
     def get_result(self):
@@ -261,9 +268,9 @@ def read(filename="cache.html"):
         has_js_warning = False
         has_css_warning = False
 
-def prompt_user_input(stdscr, prompt_text):
+def prompt_user_input(stdscr, prompt_text, initial_text=""):
     max_y, max_x = stdscr.getmaxyx()
-    input_str = ""
+    input_str = initial_text  # Initialize with the prefix (e.g., "@")
     
     stdscr.timeout(-1)
     
@@ -285,21 +292,26 @@ def prompt_user_input(stdscr, prompt_text):
             elif ch == 27:
                 return None
             elif ch in [curses.KEY_BACKSPACE, 127, 8]:
-                if len(input_str) > 0:
+                # Prevent deleting the mandatory prefix if you want to lock it in, 
+                # or allow deleting it if you want flexibility. 
+                # Keeping len(input_str) > len(initial_text) protects the prefix from being deleted:
+                if len(input_str) > len(initial_text):
                     input_str = input_str[:-1]
             elif 32 <= ch <= 126:
                 input_str += chr(ch)
     finally:
         stdscr.timeout(50)
 
+
 def main(stdscr):
-    global selected_index, details_states, scroll_y
+    # Declare all global variables right at the top of the function here:
+    global selected_index, details_states, scroll_y, cachef_lines, interactive_elements
     read("cache.html")
 
     stdscr.timeout(50)
     curses.curs_set(0)
 
-    left_intro = "Simple html Viewer v0.6 ([q] Quit, [h] Home, [r] Reload, [s] Search)"
+    left_intro = "Simple html Viewer v0.7 ([q] Quit, [h] Home, [r] Reload, [s] Search)"
 
     try:
         while True:
@@ -344,21 +356,47 @@ def main(stdscr):
                         read("cache.html")
                         if selected_index >= len(interactive_elements):
                             selected_index = max(0, len(interactive_elements) - 1)
+
+
                     elif item['type'] == 'link':
                         url = item['href']
-                        subprocess.run([sys.executable, "mwd.py"], input=url + "\n", text=True)
-                        read("cache.html")
-                        selected_index = 0
-                        scroll_y = 0
+                        
+                        # Check if it's a local file path rather than a web URL
+                        if not url.startswith("http://") and not url.startswith("https://"):
+                            if os.path.exists(url):
+                                with open(url, "r", encoding="utf-8") as f:
+                                    local_content = f.read()
+                                with open("cache.html", "w", encoding="utf-8") as f:
+                                    f.write(local_content)
+                                read("cache.html")
+                                selected_index = 0
+                                scroll_y = 0
+                            else:
+                                cachef_lines = [(f"Error: Local file '{url}' not found.", False)]
+                                interactive_elements = []
+                        else:
+                            subprocess.run([sys.executable, "mwd.py"], input=url + "\n", text=True)
+                            read("cache.html")
+                            selected_index = 0
+                            scroll_y = 0
+
+
                     elif item['type'] == 'input':
-                        # Intercept Enter key on page input textboxes to trigger search/queries
-                        query = prompt_user_input(stdscr, f"Search ({item['name']})")
+                        # Grab the default value from the HTML input tag (e.g. "@wikipedia-clone/")
+                        initial_val = item.get('value', '')
+                        query = prompt_user_input(stdscr, f"Search ({item['name']})", initial_text=initial_val)
                         if query:
-                            target_url = f"@{query}"
+                            # If the resulting string starts with @, use it directly as the target query path
+                            if query.startswith("@"):
+                                target_url = query
+                            else:
+                                target_url = f"@{query}"
+                                
                             subprocess.run([sys.executable, "mwd.py"], input=target_url + "\n", text=True)
                             read("cache.html")
                             selected_index = 0
                             scroll_y = 0
+
 
             elif key == ord('s') or key == ord('S'):
                 query = prompt_user_input(stdscr, "Enter URL or Search Query")
@@ -375,6 +413,7 @@ def main(stdscr):
                     read("cache.html")
                     selected_index = 0
                     scroll_y = 0
+
 
             elif key == ord('h') or key == ord('H'):
                 if os.path.exists("home.html"):
