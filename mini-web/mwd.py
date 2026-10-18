@@ -40,7 +40,11 @@ if http_url.startswith("@"):
                     try:
                         with open(filepath, "r", encoding="utf-8") as f:
                             content = f.read()
-                            if query in filename.lower() or query in content.lower():
+                            # Normalize path separators for cross-platform path matching
+                            norm_filepath = filepath.replace(os.sep, "/").lower()
+                            
+                            # Check if query matches the path, filename, or content
+                            if query in norm_filepath or query in filename.lower() or query in content.lower():
                                 matching_results.append(filepath)
                     except Exception:
                         pass
