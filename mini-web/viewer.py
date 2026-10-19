@@ -7,6 +7,65 @@ import textwrap
 import shutil
 from html.parser import HTMLParser
 
+
+def run_extension(event_type, action_name=None, stdscr=None):
+    """
+    Universal extension runner. 
+    - If action_name is given (like for keys: 'r', 'w'), it runs that specific file.
+    - If action_name is None (like for folders: 'render', 'read'), it runs ALL files inside that folder.
+    """
+    folder_path = os.path.join("local/extensions", event_type)
+    
+    if not os.path.exists(folder_path):
+        return False
+        
+    executed_any = False
+    
+    # Determine which files to run
+    if action_name:
+        # Run a specific file (e.g., local/extensions/key/w.py)
+        files_to_run = [f"{action_name}.py"]
+    else:
+        # Run ALL files in the folder (e.g., local/extensions/render/ or read/)
+        files_to_run = sorted([f for f in os.listdir(folder_path) if f.endswith(".py")])
+        
+    for filename in files_to_run:
+        script_path = os.path.join(folder_path, filename)
+        
+        if not os.path.exists(script_path):
+            continue
+            
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_code = f.read()
+                
+            local_scope = {
+                'stdscr': stdscr,
+                'file_path': file_path if 'file_path' in locals() else None,
+                'cachef_lines': cachef_lines if 'cachef_lines' in globals() else [],
+                'interactive_elements': interactive_elements if 'interactive_elements' in globals() else [],
+                'raw_html': raw_html if 'raw_html' in globals() else "", # <-- Add this line
+                'read': read,
+                'prompt_user_input': prompt_user_input if 'prompt_user_input' in globals() else None,
+                'subprocess': subprocess,
+                'sys': sys,
+                'os': os
+            }
+            
+            exec(script_code, globals(), local_scope)
+            executed_any = True
+            
+        except Exception as e:
+            if stdscr:
+                curses.endwin()
+            print(f"Error running extension {script_path}: {e}")
+            input("Press Enter to continue...")
+            if stdscr:
+                stdscr.refresh()
+                
+    return executed_any
+
+
 class InteractiveHTMLParser(HTMLParser):
     def __init__(self, details_states):
         super().__init__()
@@ -29,8 +88,11 @@ class InteractiveHTMLParser(HTMLParser):
         self.skip_content = False
         self.details_stack = []
 
+        # List stack and counter tracking for ordered (<ol>) vs unordered (<ul>) lists
+        self.list_stack = []
+        self.ol_counters = []
+
     def handle_comment(self, data):
-        # Ignore and hide HTML comments <!-- ... -->
         pass
 
     def handle_starttag(self, tag, attrs):
@@ -60,28 +122,72 @@ class InteractiveHTMLParser(HTMLParser):
                 self.flush_line()
             return
 
+        if tag == 'details':
+            d_id = self.details_count
+            self.details_count += 1
+            self.details_stack.append(d_id)
+            if d_id not in self.details_states:
+                self.details_states[d_id] = False
+            
+            if not self.details_states[d_id]:
+                self.skip_content = True
+            return
+
+        if tag == 'summary' and self.details_stack:
+            self.in_summary = True
+            d_id = self.details_stack[-1]
+            self.interactive_elements.append({
+                'type': 'details',
+                'details_id': d_id,
+                'text': '',
+                'line_idx': len(self.output_lines),
+                'centered': self.in_center
+            })
+            self._current_line.append("[+] ")
+            return
+
+        
+        if self.skip_content:
+            return
+
+        # Upgraded horizontal rule <hr>
         if tag == 'hr':
             if self._current_line:
                 self.flush_line()
-            self.output_lines.append(("-" * 30, self.in_center))
+            term_width = shutil.get_terminal_size().columns
+            self.output_lines.append(("-" * term_width, self.in_center))
+            return
+
+        if tag == 'ul':
+            self.list_stack.append('ul')
+            self.ol_counters.append(0)
+            return
+
+        if tag == 'ol':
+            self.list_stack.append('ol')
+            self.ol_counters.append(1)
             return
 
         if tag == 'li':
             if self._current_line:
                 self.flush_line()
-            self._current_line.append(" * ")
+            if self.list_stack and self.list_stack[-1] == 'ol':
+                num = self.ol_counters[-1]
+                self._current_line.append(f" {num}. ")
+                self.ol_counters[-1] += 1
+            else:
+                self._current_line.append(" * ")
             return
 
-# Handle form input boxes for local database searching
         if tag == 'input':
             input_type = attr_dict.get('type', 'text')
             if input_type in ['text', 'search']:
                 placeholder = attr_dict.get('placeholder', 'Search...')
-                default_value = attr_dict.get('value', '') # Capture value attribute
+                default_value = attr_dict.get('value', '')
                 self.interactive_elements.append({
                     'type': 'input',
                     'name': attr_dict.get('name', 'q'),
-                    'value': default_value, # Store it here
+                    'value': default_value,
                     'text': f"[ Input: {placeholder} ]",
                     'line_idx': len(self.output_lines),
                     'centered': self.in_center
@@ -116,10 +222,19 @@ class InteractiveHTMLParser(HTMLParser):
         if self.skip_content:
             return
 
-        if tag in ['h1', 'h2', 'h3']:
+        # Distinct header hierarchy formatting (h1, h2, h3)
+        if tag == 'h1':
             if self._current_line:
                 self.flush_line()
             self._current_line.append("=== ")
+        elif tag == 'h2':
+            if self._current_line:
+                self.flush_line()
+            self._current_line.append("-- ")
+        elif tag == 'h3':
+            if self._current_line:
+                self.flush_line()
+            self._current_line.append("- ")
 
         elif tag == 'a':
             if self._current_line:
@@ -135,7 +250,7 @@ class InteractiveHTMLParser(HTMLParser):
             })
             self._current_line.append("[Link: ")
 
-        elif tag in ['p', 'div', 'br', 'ul', 'ol', 'form']:
+        elif tag in ['p', 'div', 'br', 'form']:
             if self._current_line:
                 self.flush_line()
             if tag == 'br':
@@ -163,6 +278,12 @@ class InteractiveHTMLParser(HTMLParser):
             self.in_center = False
             return
 
+        if tag in ['ul', 'ol']:
+            if self.list_stack:
+                self.list_stack.pop()
+                self.ol_counters.pop()
+            return
+
         if tag == 'details':
             if self.details_stack:
                 self.details_stack.pop()
@@ -177,8 +298,17 @@ class InteractiveHTMLParser(HTMLParser):
         if self.skip_content:
             return
 
-        if tag in ['h1', 'h2', 'h3']:
+        # Closing tags for structured headings
+        if tag == 'h1':
             self._current_line.append(" ===")
+            self.flush_line()
+            self.output_lines.append(("", self.in_center))
+        elif tag == 'h2':
+            self._current_line.append(" --")
+            self.flush_line()
+            self.output_lines.append(("", self.in_center))
+        elif tag == 'h3':
+            self._current_line.append(" -")
             self.flush_line()
             self.output_lines.append(("", self.in_center))
         elif tag == 'a':
@@ -186,9 +316,10 @@ class InteractiveHTMLParser(HTMLParser):
             if self.interactive_elements:
                 self.interactive_elements[-1]['text'] = "".join(self._current_line)
             self.flush_line()
-        elif tag in ['p', 'div', 'li', 'ul', 'ol', 'form']:
+        elif tag in ['p', 'div', 'li', 'form']:
             self.flush_line()
-            self.output_lines.append(("", self.in_center))
+            if tag != 'li':
+                self.output_lines.append(("", self.in_center))
 
         self._current_tag = None
 
@@ -214,7 +345,6 @@ class InteractiveHTMLParser(HTMLParser):
     def flush_line(self):
         line_str = "".join(self._current_line).strip()
         if line_str:
-            # Automatically wrap long lines/paragraphs to prevent horizontal overflow
             wrapped_chunks = textwrap.wrap(line_str, width=shutil.get_terminal_size().columns)
             for chunk in wrapped_chunks:
                 self.output_lines.append((chunk, self.in_center))
@@ -224,6 +354,7 @@ class InteractiveHTMLParser(HTMLParser):
         if self._current_line:
             self.flush_line()
         return self.output_lines, self.interactive_elements, self.has_script, self.has_css
+
 
 # Global state
 cachef_lines = []
@@ -235,23 +366,29 @@ scroll_y = 0
 has_js_warning = False
 has_css_warning = False
 
-def read(filename="cache.html"):
+
+
+def read(filename="cache.html", stdscr=None):
     global cachef_lines, interactive_elements, page_title, details_states, has_js_warning, has_css_warning, scroll_y
     if os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as file:
                 raw_html = file.read()
         except UnicodeDecodeError:
-            cachef_lines = [
-                ("File downloaded successfully into the /downloads folder.", True),
-                ("Press [h] to return to Home.", True)
-            ]
-            interactive_elements = []
-            page_title = "Download Complete"
-            has_js_warning = False
-            has_css_warning = False
-            scroll_y = 0
+            # ... fallback ...
             return
+
+        # === ADD THIS: Allow HTML extensions to modify raw_html before parsing ===
+        # We can expose raw_html to the extension scope
+        global_scope = globals()
+        global_scope['raw_html'] = raw_html
+        
+        # Run any scripts in local/extensions/html/
+        run_extension("html", stdscr=stdscr)
+        
+        # Pull back any modifications the extension might have made to raw_html
+        if 'raw_html' in globals():
+            raw_html = globals()['raw_html']
 
         if "<title>" in raw_html and "</title>" in raw_html:
             start = raw_html.find("<title>") + 7
@@ -260,8 +397,16 @@ def read(filename="cache.html"):
 
         parser = InteractiveHTMLParser(details_states)
         parser.feed(raw_html)
+        
         cachef_lines, interactive_elements, has_js_warning, has_css_warning = parser.get_result()
         scroll_y = 0
+
+        # === HOOK 1: Run extensions that want to modify content at the TOP ===
+        run_extension("read_top", stdscr=stdscr)
+
+        # === HOOK 2: Run extensions that want to append at the BOTTOM ===
+        run_extension("read", stdscr=stdscr)
+
     else:
         cachef_lines = [(f"Error: '{filename}' not found.", False)]
         interactive_elements = []
@@ -311,7 +456,7 @@ def main(stdscr):
     stdscr.timeout(50)
     curses.curs_set(0)
 
-    left_intro = "Simple html Viewer v0.7 ([q] Quit, [h] Home, [r] Reload, [s] Search, [i] install)"
+    left_intro = "Simple html Viewer v0.8 ([q] Quit, [h] Home, [r] Reload, [s] Search, [i] install)"
 
     try:
         while True:
@@ -439,6 +584,23 @@ def main(stdscr):
                 read("cache.html")
                 selected_index = 0
                 scroll_y = 0
+
+            # When a key is pressed, check if an extension script exists for it
+            elif (ord('a') <= key <= ord('z')) or (ord('A') <= key <= ord('Z')):
+                key_char = chr(key).lower()
+                
+                # Executes extensions/key/w.py or extensions/key/x.py natively
+                executed = run_extension("key", key_char, stdscr)
+                
+                if executed:
+                    # The extension can freely modify global variables, 
+                    # and we just ensure the view resets/redraws safely
+                    selected_index = 0
+                    scroll_y = 0
+            
+            # rendering scripts
+
+            run_extension("render", stdscr=stdscr)
 
             stdscr.clear()
 
