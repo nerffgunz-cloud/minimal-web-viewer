@@ -11,65 +11,105 @@ def run_installer():
         print(f"Error: '{downloads_dir}' directory does not exist.")
         return
         
-    zip_files = [f for f in os.listdir(downloads_dir) if f.endswith('.zip')]
+    # Gather items directly inside downloads/ (both individual files and folders)
+    try:
+        items = sorted(os.listdir(downloads_dir))
+    except Exception:
+        items = []
+        
+    valid_choices = []
     
-    if not zip_files:
-        print(f"No .zip packages found in '{downloads_dir}/'. Download a package first!")
+    print("\nAvailable Packages / Folders:")
+    for item in items:
+        item_path = os.path.join(downloads_dir, item)
+        if item.endswith('.zip') or os.path.isdir(item_path):
+            valid_choices.append(item_path)
+            
+    if not valid_choices:
+        print(f"No .zip packages or folders found in '{downloads_dir}/'.")
         return
         
-    print("\nAvailable Packages:")
-    for idx, zip_file in enumerate(zip_files, 1):
-        print(f"  [{idx}] {zip_file}")
+    for idx, path in enumerate(valid_choices, 1):
+        label = "[Folder]" if os.path.isdir(path) else "[Zip]"
+        print(f"  [{idx}] {label} {os.path.basename(path)}")
         
-    choice = input("\nEnter package number to install (or 'q' to quit): ").strip()
+    choice = input("\nEnter number to install (or 'q' to quit): ").strip()
     if choice.lower() == 'q':
         print("Installer exited.")
         return
-        
+
     try:
         choice_idx = int(choice) - 1
-        if 0 <= choice_idx < len(zip_files):
-            selected_zip = zip_files[choice_idx]
-            zip_path = os.path.join(downloads_dir, selected_zip)
+        if 0 <= choice_idx < len(valid_choices):
+            selected_path = valid_choices[choice_idx]
+            zip_files_to_install = []
             
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                namelist = zip_ref.namelist()
-                
-                # Check if dir.txt exists inside the zip package
-                target_subdir = ""
-                if "dir.txt" in namelist:
-                    target_subdir = zip_ref.read("dir.txt").decode("utf-8").strip()
-                
-                # Construct final extraction path
-                extract_to = os.path.join(base_local_dir, target_subdir)
-                os.makedirs(extract_to, exist_ok=True)
-                
-                print(f"\nInstalling '{selected_zip}' into '{extract_to}'...")
-                
-                # Extract files, ignoring dir.txt itself
-                for member in namelist:
-                    if member == "dir.txt" or member.endswith('/'):
-                        continue
-                        
-                    source_file = zip_ref.open(member)
-                    target_file_path = os.path.join(extract_to, member)
-                    os.makedirs(os.path.dirname(target_file_path), exist_ok=True)
+            # If the user picked a folder, recursively find all zips inside it and its subdirectories
+            if os.path.isdir(selected_path):
+                for root, dirs, files in os.walk(selected_path):
+                    for file in files:
+                        if file.endswith('.zip'):
+                            zip_files_to_install.append(os.path.join(root, file))
+                            
+                if not zip_files_to_install:
+                    print(f"No .zip packages found inside folder '{selected_path}' or its subdirectories.")
+                    return
                     
-                    with open(target_file_path, "wb") as target_file:
-                        target_file.write(source_file.read())
-                        
-            print("Installation complete! Your files are indexed and ready to search using '@'.")
-            
-            # Ask to delete the zip file
-            del_choice = input(f"Do you want to delete the installation zip '{selected_zip}'? (y/n): ").strip().lower()
-            if del_choice == 'y':
-                os.remove(zip_path)
-                print(f"Successfully deleted {selected_zip}.")
+                print(f"\nFound {len(zip_files_to_install)} package(s) inside folder '{os.path.basename(selected_path)}':")
+                for z in zip_files_to_install:
+                    print(f"  - {os.path.basename(z)}")
+                    
+                confirm = input("Install all of them? (y/n): ").strip().lower()
+                if confirm != 'y':
+                    print("Installation cancelled.")
+                    return
             else:
-                print("Zip file kept in downloads folder.")
-                
+                # If the user picked a single zip file
+                zip_files_to_install.append(selected_path)
+            
+            # Process installation for all gathered zip files
+            successfully_installed = []
+            for zip_path in zip_files_to_install:
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        namelist = zip_ref.namelist()
+                        
+                        # Check if dir.txt exists inside the zip package
+                        target_subdir = ""
+                        if "dir.txt" in namelist:
+                            target_subdir = zip_ref.read("dir.txt").decode("utf-8").strip()
+                        
+                        # Construct final extraction path inside local/
+                        extract_to = os.path.join(base_local_dir, target_subdir)
+                        os.makedirs(extract_to, exist_ok=True)
+                        
+                        print(f"Installing '{os.path.basename(zip_path)}' into '{extract_to}'...")
+                        zip_ref.extractall(extract_to)
+                                
+                    print(f"Successfully installed: {zip_path}")
+                    successfully_installed.append(zip_path)
+                    
+                except Exception as e:
+                    print(f"Error installing {zip_path}: {e}")
+            
+            # ASK ONCE AND ONLY ONCE AT THE END
+            if successfully_installed:
+                del_choice = input(f"\nDo you want to delete the {len(successfully_installed)} successfully installed zip file(s)? (y/n): ").strip().lower()
+                if del_choice == 'y':
+                    for zip_path in successfully_installed:
+                        try:
+                            os.remove(zip_path)
+                            print(f"Deleted: {zip_path}")
+                        except Exception as e:
+                            print(f"Error deleting {zip_path}: {e}")
+                    print("Cleanup complete.")
+                else:
+                    print("Zip files kept in downloads folder.")
+                    
+            print("\nInstallation process finished! Files are ready to search using '@'.")
         else:
-            print("Error: Invalid package selection number.")
+            print("Error: Invalid selection number.")
+            
     except ValueError:
         print("Error: Please enter a valid number.")
 
