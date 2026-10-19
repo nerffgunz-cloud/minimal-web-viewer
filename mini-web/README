@@ -1,4 +1,4 @@
-tiny html viewer
+tiny yet powerfull html viewer made for my miniweb browser chain, which contains programs like
 
 1. viewer
     minimal html viewer writen in python
@@ -16,6 +16,7 @@ how the minimal web works
 
 1. mwd executes
     curl {http} -o cache.html
+    or fetches a locally stored file
 
     which makes a file named cache.html
 
@@ -33,3 +34,8 @@ how the minimal web works
             C. s. search url / duck duck go engine
                 duck duck go isnt working yet, its flagging this as bots
             D. h. home page, links to some good websites for this
+        6. extensions are executed
+            A. html
+            B. key
+            C. read
+            D. render
