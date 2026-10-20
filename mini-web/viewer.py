@@ -44,12 +44,17 @@ def run_extension(event_type, action_name=None, stdscr=None):
                 'file_path': file_path if 'file_path' in locals() else None,
                 'cachef_lines': cachef_lines if 'cachef_lines' in globals() else [],
                 'interactive_elements': interactive_elements if 'interactive_elements' in globals() else [],
-                'raw_html': raw_html if 'raw_html' in globals() else "", # <-- Add this line
+                'raw_html': raw_html if 'raw_html' in globals() else "",
                 'read': read,
                 'prompt_user_input': prompt_user_input if 'prompt_user_input' in globals() else None,
                 'subprocess': subprocess,
                 'sys': sys,
-                'os': os
+                'os': os,
+                'globals_dict': globals(),
+                
+                # --- ADD THESE EXTENSION CALLS & UTILITIES ---
+                'InteractiveHTMLParser': InteractiveHTMLParser, # Allows custom parsing or re-parsing
+                'details_states': details_states if 'details_states' in globals() else {}, # Preserves dropdown states
             }
             
             exec(script_code, globals(), local_scope)
@@ -451,12 +456,14 @@ def prompt_user_input(stdscr, prompt_text, initial_text=""):
 def main(stdscr):
     # Declare all global variables right at the top of the function here:
     global selected_index, details_states, scroll_y, cachef_lines, interactive_elements
+    run_extension("global", stdscr=stdscr)
+
     read("cache.html")
 
     stdscr.timeout(50)
     curses.curs_set(0)
 
-    left_intro = "Simple html Viewer v0.8 ([q] Quit, [h] Home, [r] Reload, [s] Search, [i] install)"
+    left_intro = "Simple html Viewer v0.9 ([q] Quit, [h] Home, [r] Reload, [s] Search, [i] install)"
 
     try:
         while True:
@@ -506,8 +513,21 @@ def main(stdscr):
                     elif item['type'] == 'link':
                         url = item['href']
                         
+                        # === INTERCEPT NIBBLE CONSOLE INPUT ===
+                        if url == "nibble-action://input":
+                            val = prompt_user_input(stdscr, "Nibble Console Input")
+                            if val:
+                                with open("nibble_input.txt", "w") as f:
+                                    f.write(val)
+                                read("cache.html", stdscr)
+                                selected_index = 0
+                                scroll_y = 0
+                            continue
+                        # ======================================
+
                         # Check if it's a local file path rather than a web URL
                         if not url.startswith("http://") and not url.startswith("https://"):
+                            # ... (rest of standard local file handling)
                             if os.path.exists(url):
                                 with open(url, "r", encoding="utf-8") as f:
                                     local_content = f.read()
